@@ -13,6 +13,12 @@ type TripRequest struct {
 	Preferences []string `json:"preferences,omitempty"`
 }
 
+// ItineraryRequest represents the input parameters for generating a travel itinerary.
+type ItineraryRequest struct {
+	Destination string `json:"destination"`
+	Days        int    `json:"days"`
+}
+
 // ChatCompletionRequest is the payload sent to the LLM.
 type ChatCompletionRequest struct {
 	Model     string    `json:"model"`

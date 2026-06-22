@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"context"
 	"testing"
 
 	"github.com/shreygarg/trip-planner-agent/models"
@@ -9,7 +10,7 @@ import (
 )
 
 func TestRecommendDestinations_MountainPreference(t *testing.T) {
-	destRepo := repo.NewDestinationRepository()
+	destRepo := repo.NewInMemoryDestinationRepository()
 	planner := service.NewDestinationPlanner(destRepo)
 
 	request := models.TripRequest{
@@ -19,7 +20,10 @@ func TestRecommendDestinations_MountainPreference(t *testing.T) {
 		Preferences: []string{"mountains"},
 	}
 
-	recs := planner.RecommendDestinations(request)
+	recs, err := planner.RecommendDestinations(context.Background(), request)
+	if err != nil {
+		t.Fatalf("RecommendDestinations failed: %v", err)
+	}
 
 	if len(recs) == 0 {
 		t.Fatal("Expected recommendations, got none")
@@ -49,7 +53,7 @@ func TestRecommendDestinations_MountainPreference(t *testing.T) {
 }
 
 func TestRecommendDestinations_LowBudget(t *testing.T) {
-	destRepo := repo.NewDestinationRepository()
+	destRepo := repo.NewInMemoryDestinationRepository()
 	planner := service.NewDestinationPlanner(destRepo)
 
 	request := models.TripRequest{
@@ -59,7 +63,10 @@ func TestRecommendDestinations_LowBudget(t *testing.T) {
 		Preferences: []string{},
 	}
 
-	recs := planner.RecommendDestinations(request)
+	recs, err := planner.RecommendDestinations(context.Background(), request)
+	if err != nil {
+		t.Fatalf("RecommendDestinations failed: %v", err)
+	}
 
 	if len(recs) == 0 {
 		t.Fatal("Expected recommendations, got none")
@@ -80,7 +87,7 @@ func TestRecommendDestinations_LowBudget(t *testing.T) {
 }
 
 func TestRecommendDestinations_InternationalPreference(t *testing.T) {
-	destRepo := repo.NewDestinationRepository()
+	destRepo := repo.NewInMemoryDestinationRepository()
 	planner := service.NewDestinationPlanner(destRepo)
 
 	request := models.TripRequest{
@@ -90,7 +97,10 @@ func TestRecommendDestinations_InternationalPreference(t *testing.T) {
 		Preferences: []string{"international"},
 	}
 
-	recs := planner.RecommendDestinations(request)
+	recs, err := planner.RecommendDestinations(context.Background(), request)
+	if err != nil {
+		t.Fatalf("RecommendDestinations failed: %v", err)
+	}
 
 	if len(recs) == 0 {
 		t.Fatal("Expected recommendations, got none")

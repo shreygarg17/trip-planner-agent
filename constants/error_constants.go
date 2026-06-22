@@ -10,4 +10,5 @@ const (
 	ErrUnmarshalToolArgs     = "failed to unmarshal recommend_destinations args"
 	ErrExecTool              = "failed executing recommend_destinations"
 	ErrLLMEmptyChoices       = "llm returned an empty choice set"
+	ErrDestinationRequired   = "destination is required"
 )

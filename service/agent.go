@@ -1,8 +1,10 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	clientinterfaces "github.com/shreygarg/trip-planner-agent/clients/interfaces"
 	"github.com/shreygarg/trip-planner-agent/constants"
@@ -10,41 +12,50 @@ import (
 	"github.com/shreygarg/trip-planner-agent/service/interfaces"
 )
 
+var (
+	agentOnce     sync.Once
+	agentInstance interfaces.Agent
+)
+
 // TripAgent coordinates prompt execution and tool calls.
 type TripAgent struct {
-	llmClient    clientinterfaces.LLMClient
-	toolExecutor interfaces.ToolExecutor
-	model        string
+	llmClient     clientinterfaces.LLMClient
+	toolExecutors []interfaces.ToolExecutor
+	model         string
 }
 
-// NewTripAgent instantiates a new Agent service.
-func NewTripAgent(llmClient clientinterfaces.LLMClient, toolExecutor interfaces.ToolExecutor, model string) interfaces.Agent {
-	return &TripAgent{
-		llmClient:    llmClient,
-		toolExecutor: toolExecutor,
-		model:        model,
-	}
+// NewTripAgent instantiates a new Agent service (singleton).
+func NewTripAgent(llmClient clientinterfaces.LLMClient, toolExecutors []interfaces.ToolExecutor, model string) interfaces.Agent {
+	agentOnce.Do(func() {
+		agentInstance = &TripAgent{
+			llmClient:     llmClient,
+			toolExecutors: toolExecutors,
+			model:         model,
+		}
+	})
+	return agentInstance
 }
 
 // PlanTrip processes a planning prompt, resolving requested tool calls iteratively.
-func (a *TripAgent) PlanTrip(prompt string) (string, error) {
+func (a *TripAgent) PlanTrip(ctx context.Context, prompt string) (string, error) {
 	messages := []models.Message{
 		{Role: "user", Content: prompt},
 	}
 
-	availableTools := []models.Tool{
-		a.toolExecutor.GetDefinition(),
+	availableTools := make([]models.Tool, 0, len(a.toolExecutors))
+	for _, te := range a.toolExecutors {
+		availableTools = append(availableTools, te.GetDefinition())
 	}
 
 	for i := 0; i < 5; i++ {
 		req := models.ChatCompletionRequest{
-			MaxTokens: 500,
 			Model:     a.model,
+			MaxTokens: 500,
 			Messages:  messages,
 			Tools:     availableTools,
 		}
 
-		resp, err := a.llmClient.CreateChatCompletion(req)
+		resp, err := a.llmClient.CreateChatCompletion(ctx, req)
 		if err != nil {
 			return "", fmt.Errorf("llm completion failure: %w", err)
 		}
@@ -60,7 +71,7 @@ func (a *TripAgent) PlanTrip(prompt string) (string, error) {
 			return choiceMessage.Content, nil
 		}
 
-		toolMsgs, err := a.handleToolCalls(choiceMessage.ToolCalls)
+		toolMsgs, err := a.handleToolCalls(ctx, choiceMessage.ToolCalls)
 		if err != nil {
 			return "", err
 		}
@@ -70,10 +81,16 @@ func (a *TripAgent) PlanTrip(prompt string) (string, error) {
 	return "", errors.New(constants.ErrMaxIterationsExceeded)
 }
 
-func (a *TripAgent) handleToolCalls(toolCalls []models.ToolCall) ([]models.Message, error) {
+func (a *TripAgent) handleToolCalls(ctx context.Context, toolCalls []models.ToolCall) ([]models.Message, error) {
 	messages := make([]models.Message, 0, len(toolCalls))
+	executorMap := make(map[string]interfaces.ToolExecutor)
+	for _, te := range a.toolExecutors {
+		executorMap[te.GetDefinition().Function.Name] = te
+	}
+
 	for _, tc := range toolCalls {
-		if tc.Function.Name != "recommend_destinations" {
+		te, exists := executorMap[tc.Function.Name]
+		if !exists {
 			messages = append(messages, models.Message{
 				Role:       "tool",
 				Content:    fmt.Sprintf(`{"error": "unsupported tool: %s"}`, tc.Function.Name),
@@ -83,9 +100,9 @@ func (a *TripAgent) handleToolCalls(toolCalls []models.ToolCall) ([]models.Messa
 			continue
 		}
 
-		res, err := a.toolExecutor.Execute(tc.Function.Arguments)
+		res, err := te.Execute(ctx, tc.Function.Arguments)
 		if err != nil {
-			return nil, fmt.Errorf("tool execution failed: %w", err)
+			return nil, fmt.Errorf("tool %s execution failed: %w", tc.Function.Name, err)
 		}
 
 		messages = append(messages, models.Message{

@@ -1,12 +1,15 @@
 package tests
 
 import (
+	"context"
 	"strings"
 	"testing"
 
+	"github.com/shreygarg/trip-planner-agent/internal/tools/weather"
 	"github.com/shreygarg/trip-planner-agent/models"
 	"github.com/shreygarg/trip-planner-agent/repo"
 	"github.com/shreygarg/trip-planner-agent/service"
+	"github.com/shreygarg/trip-planner-agent/service/interfaces"
 	"github.com/shreygarg/trip-planner-agent/validations"
 )
 
@@ -15,17 +18,17 @@ type mockLLMClient struct {
 	t         *testing.T
 }
 
-func (m *mockLLMClient) CreateChatCompletion(req models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
+func (m *mockLLMClient) CreateChatCompletion(ctx context.Context, req models.ChatCompletionRequest) (*models.ChatCompletionResponse, error) {
 	m.callCount++
 
 	if m.callCount == 1 {
-		// First turn: Verify LLM receives the user prompt and registers the tool
+		// First turn: Verify LLM receives the user prompt and registers all 3 tools
 		if len(req.Messages) != 1 || req.Messages[0].Role != "user" {
 			m.t.Errorf("Expected first turn to have exactly 1 user message, got: %v", req.Messages)
 		}
 
-		if len(req.Tools) != 1 || req.Tools[0].Function.Name != "recommend_destinations" {
-			m.t.Errorf("Expected first turn to register 'recommend_destinations' tool, got: %v", req.Tools)
+		if len(req.Tools) != 3 {
+			m.t.Errorf("Expected first turn to register 3 tools, got: %d", len(req.Tools))
 		}
 
 		// Simulate LLM calling the recommend_destinations tool
@@ -51,28 +54,55 @@ func (m *mockLLMClient) CreateChatCompletion(req models.ChatCompletionRequest) (
 	}
 
 	if m.callCount == 2 {
-		// Second turn: Verify LLM receives the tool response along with previous context
+		// Second turn: Verify LLM receives the recommend_destinations response and requests the generate_itinerary tool
 		if len(req.Messages) != 3 {
 			m.t.Errorf("Expected second turn to have 3 messages (user, assistant tool-call, tool response), got: %d", len(req.Messages))
 		}
 
 		toolMsg := req.Messages[2]
-		if toolMsg.Role != "tool" || toolMsg.Name != "recommend_destinations" || toolMsg.ToolCallID != "call_xyz987" {
-			m.t.Errorf("Expected third message to be the tool response from 'recommend_destinations', got: %v", toolMsg)
+		if !strings.Contains(toolMsg.Content, "Sikkim") {
+			m.t.Errorf("Expected first tool response to contain Sikkim, got: %s", toolMsg.Content)
 		}
 
-		// The content returned by planner should contain recommended destinations from the mock arguments (Bhutan, Kasol, Manali)
-		if !strings.Contains(toolMsg.Content, "Bhutan") && !strings.Contains(toolMsg.Content, "Kasol") {
-			m.t.Errorf("Expected tool response to contain destinations like Bhutan or Kasol, got: %s", toolMsg.Content)
+		// Simulate LLM calling the generate_itinerary tool
+		return &models.ChatCompletionResponse{
+			Choices: []models.Choice{
+				{
+					Message: models.Message{
+						Role: "assistant",
+						ToolCalls: []models.ToolCall{
+							{
+								ID:   "call_abc123",
+								Type: "function",
+								Function: models.ToolFunction{
+									Name:      "generate_itinerary",
+									Arguments: `{"destination": "Sikkim", "days": 4}`,
+								},
+							},
+						},
+					},
+				},
+			},
+		}, nil
+	}
+
+	if m.callCount == 3 {
+		// Third turn: Verify LLM receives the generate_itinerary response and outputs final response
+		if len(req.Messages) != 5 {
+			m.t.Errorf("Expected third turn to have 5 messages, got: %d", len(req.Messages))
 		}
 
-		// Return final LLM formatted recommendation response
+		itineraryMsg := req.Messages[4]
+		if !strings.Contains(itineraryMsg.Content, "Gangtok") {
+			m.t.Errorf("Expected second tool response to contain Gangtok activity, got: %s", itineraryMsg.Content)
+		}
+
 		return &models.ChatCompletionResponse{
 			Choices: []models.Choice{
 				{
 					Message: models.Message{
 						Role:    "assistant",
-						Content: "I recommend Kasol (score: 0.90) and Bhutan (score: 0.80) for mountains under ₹50k.",
+						Content: "Recommended Destination: Sikkim\nEstimated Cost: ₹20,000\nDay 1: Arrive and explore Gangtok\nDay 2: Tsomgo Lake\nDay 3: Nathula Pass\nDay 4: Local markets and return",
 					},
 				},
 			},
@@ -84,23 +114,30 @@ func (m *mockLLMClient) CreateChatCompletion(req models.ChatCompletionRequest) (
 
 func TestTripAgent_PlanTrip(t *testing.T) {
 	mock := &mockLLMClient{t: t}
-	destRepo := repo.NewDestinationRepository()
+	destRepo := repo.NewInMemoryDestinationRepository()
 	planner := service.NewDestinationPlanner(destRepo)
 	validator := validations.NewValidator()
-	toolExecutor := service.NewRecommendDestinationsTool(planner, validator)
-	agent := service.NewTripAgent(mock, toolExecutor, "gpt-4o")
+	itineraryRepo := repo.NewInMemoryItineraryRepository()
+	itineraryGen := service.NewItineraryGenerator(validator, itineraryRepo)
 
-	prompt := "I have ₹50k budget, 4 days, prefer mountains"
-	response, err := agent.PlanTrip(prompt)
+	recommendTool := service.NewRecommendDestinationsTool(planner, validator)
+	itineraryTool := service.NewGenerateItineraryTool(itineraryGen)
+	weatherService := weather.NewOpenMeteoClient(nil)
+	weatherTool := service.NewWeatherTool(weatherService)
+
+	agent := service.NewTripAgent(mock, []interfaces.ToolExecutor{recommendTool, itineraryTool, weatherTool}, "gpt-4o")
+
+	prompt := "Plan a 4-day mountain trip under ₹50k"
+	response, err := agent.PlanTrip(context.Background(), prompt)
 	if err != nil {
 		t.Fatalf("PlanTrip failed: %v", err)
 	}
 
-	if mock.callCount != 2 {
-		t.Errorf("Expected exactly 2 LLM completion calls, got %d", mock.callCount)
+	if mock.callCount != 3 {
+		t.Errorf("Expected exactly 3 LLM completion calls, got %d", mock.callCount)
 	}
 
-	expectedResult := "I recommend Kasol"
+	expectedResult := "Recommended Destination: Sikkim"
 	if !strings.Contains(response, expectedResult) {
 		t.Errorf("Expected response to contain %q, got %q", expectedResult, response)
 	}

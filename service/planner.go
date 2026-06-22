@@ -1,8 +1,10 @@
 package service
 
 import (
+	"context"
 	"math"
 	"sort"
+	"sync"
 
 	"github.com/shreygarg/trip-planner-agent/models"
 	repointerfaces "github.com/shreygarg/trip-planner-agent/repo/interfaces"
@@ -10,22 +12,34 @@ import (
 	"github.com/shreygarg/trip-planner-agent/utils"
 )
 
+var (
+	plannerOnce     sync.Once
+	plannerInstance interfaces.DestinationPlanner
+)
+
+// InMemoryPlanner implements DestinationPlanner logic.
 type InMemoryPlanner struct {
 	destRepo repointerfaces.DestinationRepository
 }
 
-// NewDestinationPlanner instantiates a new DestinationPlanner service.
+// NewDestinationPlanner instantiates a new DestinationPlanner service (singleton).
 func NewDestinationPlanner(destRepo repointerfaces.DestinationRepository) interfaces.DestinationPlanner {
-	return &InMemoryPlanner{
-		destRepo: destRepo,
-	}
+	plannerOnce.Do(func() {
+		plannerInstance = &InMemoryPlanner{
+			destRepo: destRepo,
+		}
+	})
+	return plannerInstance
 }
 
 // RecommendDestinations recommends travel destinations based on a trip request.
-func (p *InMemoryPlanner) RecommendDestinations(request models.TripRequest) []models.DestinationRecommendation {
-	dests := p.destRepo.GetAll()
-	recommendations := make([]models.DestinationRecommendation, 0, len(dests))
+func (p *InMemoryPlanner) RecommendDestinations(ctx context.Context, request models.TripRequest) ([]models.DestinationRecommendation, error) {
+	dests, err := p.destRepo.GetAll(ctx)
+	if err != nil {
+		return nil, err
+	}
 
+	recommendations := make([]models.DestinationRecommendation, 0, len(dests))
 	for _, d := range dests {
 		bScore := p.scoreBudget(request.Budget, d.AverageCost)
 		pScore := p.scorePreferences(request.Preferences, d.Tags)
@@ -41,7 +55,7 @@ func (p *InMemoryPlanner) RecommendDestinations(request models.TripRequest) []mo
 	}
 
 	p.sortRecommendations(recommendations)
-	return recommendations
+	return recommendations, nil
 }
 
 func (p *InMemoryPlanner) scoreBudget(budget, averageCost int) float64 {

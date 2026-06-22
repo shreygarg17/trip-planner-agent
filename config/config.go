@@ -6,4 +6,5 @@ type ConfigProvider interface {
 	GetBaseURL() string
 	GetModel() string
 	GetPort() string
+	GetDatabaseURL() string
 }

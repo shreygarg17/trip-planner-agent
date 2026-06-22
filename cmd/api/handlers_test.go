@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,7 +15,7 @@ import (
 
 type mockAgent struct{}
 
-func (a *mockAgent) PlanTrip(prompt string) (string, error) {
+func (a *mockAgent) PlanTrip(ctx context.Context, prompt string) (string, error) {
 	return "I recommend Sikkim as it matches your mountain preference and fits under ₹50k.", nil
 }
 

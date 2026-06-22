@@ -1,13 +1,20 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/shreygarg/trip-planner-agent/constants"
 	"github.com/shreygarg/trip-planner-agent/models"
 	"github.com/shreygarg/trip-planner-agent/service/interfaces"
 	validationinterfaces "github.com/shreygarg/trip-planner-agent/validations/interfaces"
+)
+
+var (
+	recommendToolOnce     sync.Once
+	recommendToolInstance interfaces.ToolExecutor
 )
 
 // RecommendDestinationsTool wraps DestinationPlanner as an LLM tool.
@@ -16,12 +23,15 @@ type RecommendDestinationsTool struct {
 	validator validationinterfaces.Validator
 }
 
-// NewRecommendDestinationsTool returns a new ToolExecutor instance.
+// NewRecommendDestinationsTool returns a new ToolExecutor instance (singleton).
 func NewRecommendDestinationsTool(planner interfaces.DestinationPlanner, validator validationinterfaces.Validator) interfaces.ToolExecutor {
-	return &RecommendDestinationsTool{
-		planner:   planner,
-		validator: validator,
-	}
+	recommendToolOnce.Do(func() {
+		recommendToolInstance = &RecommendDestinationsTool{
+			planner:   planner,
+			validator: validator,
+		}
+	})
+	return recommendToolInstance
 }
 
 // GetDefinition returns the LLM tool definition metadata.
@@ -61,7 +71,7 @@ func (t *RecommendDestinationsTool) GetDefinition() models.Tool {
 }
 
 // Execute parses function arguments and runs the planner service.
-func (t *RecommendDestinationsTool) Execute(argsJSON string) (string, error) {
+func (t *RecommendDestinationsTool) Execute(ctx context.Context, argsJSON string) (string, error) {
 	var args struct {
 		SourceCity  string   `json:"source_city,omitempty"`
 		Budget      int      `json:"budget"`
@@ -80,11 +90,15 @@ func (t *RecommendDestinationsTool) Execute(argsJSON string) (string, error) {
 		Preferences: args.Preferences,
 	}
 
-	if err := t.validator.ValidateTripRequest(req); err != nil {
+	if err := t.validator.ValidateTripRequest(ctx, req); err != nil {
 		return "", fmt.Errorf("%s: %w", constants.ErrExecTool, err)
 	}
 
-	recommendations := t.planner.RecommendDestinations(req)
+	recommendations, err := t.planner.RecommendDestinations(ctx, req)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", constants.ErrExecTool, err)
+	}
+
 	resBytes, err := json.Marshal(recommendations)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal recommendations: %w", err)
