@@ -12,6 +12,7 @@ import (
 )
 
 func TestGenerateItinerary_Success(t *testing.T) {
+	service.ResetSingletons()
 	validator := validations.NewValidator()
 	itineraryRepo := repo.NewInMemoryItineraryRepository()
 	gen := service.NewItineraryGenerator(validator, itineraryRepo)
@@ -48,6 +49,7 @@ func TestGenerateItinerary_Success(t *testing.T) {
 }
 
 func TestGenerateItinerary_ValidationError(t *testing.T) {
+	service.ResetSingletons()
 	validator := validations.NewValidator()
 	itineraryRepo := repo.NewInMemoryItineraryRepository()
 	gen := service.NewItineraryGenerator(validator, itineraryRepo)

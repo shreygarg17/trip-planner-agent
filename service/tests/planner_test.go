@@ -10,6 +10,7 @@ import (
 )
 
 func TestRecommendDestinations_MountainPreference(t *testing.T) {
+	service.ResetSingletons()
 	destRepo := repo.NewInMemoryDestinationRepository()
 	planner := service.NewDestinationPlanner(destRepo)
 
@@ -53,6 +54,7 @@ func TestRecommendDestinations_MountainPreference(t *testing.T) {
 }
 
 func TestRecommendDestinations_LowBudget(t *testing.T) {
+	service.ResetSingletons()
 	destRepo := repo.NewInMemoryDestinationRepository()
 	planner := service.NewDestinationPlanner(destRepo)
 
@@ -87,6 +89,7 @@ func TestRecommendDestinations_LowBudget(t *testing.T) {
 }
 
 func TestRecommendDestinations_InternationalPreference(t *testing.T) {
+	service.ResetSingletons()
 	destRepo := repo.NewInMemoryDestinationRepository()
 	planner := service.NewDestinationPlanner(destRepo)
 

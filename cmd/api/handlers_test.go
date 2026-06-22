@@ -55,3 +55,28 @@ func TestPlanTripHandler(t *testing.T) {
 		t.Errorf("Expected status code %d, got %d", http.StatusMethodNotAllowed, recGet.Code)
 	}
 }
+
+func TestHealthHandler(t *testing.T) {
+	agent := &mockAgent{}
+	validator := validations.NewValidator()
+	handler := NewAPIHandler(agent, validator)
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec := httptest.NewRecorder()
+
+	handler.HealthHandler(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, rec.Code)
+	}
+
+	var resp map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Failed to parse health response: %v", err)
+	}
+
+	if resp["status"] != "ok" {
+		t.Errorf("Expected status 'ok', got %q", resp["status"])
+	}
+}
+

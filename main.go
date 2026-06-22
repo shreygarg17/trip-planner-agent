@@ -4,15 +4,18 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/joho/godotenv"
 	"github.com/shreygarg/trip-planner-agent/clients"
 	"github.com/shreygarg/trip-planner-agent/cmd/api"
 	"github.com/shreygarg/trip-planner-agent/config"
+	"github.com/shreygarg/trip-planner-agent/internal/middleware"
 	"github.com/shreygarg/trip-planner-agent/internal/tools/weather"
 	"github.com/shreygarg/trip-planner-agent/repo"
 	repointerfaces "github.com/shreygarg/trip-planner-agent/repo/interfaces"
 	"github.com/shreygarg/trip-planner-agent/service"
 	serviceinterfaces "github.com/shreygarg/trip-planner-agent/service/interfaces"
+	"github.com/shreygarg/trip-planner-agent/tools/longweekend"
 	"github.com/shreygarg/trip-planner-agent/validations"
 )
 
@@ -45,17 +48,24 @@ func main() {
 	recommendTool := service.NewRecommendDestinationsTool(planner, validator)
 	itineraryTool := service.NewGenerateItineraryTool(itineraryGen)
 	weatherTool := service.NewWeatherTool(weatherService)
+	holidayRepo := longweekend.NewStaticHolidayRepository()
+	longWeekendSvc := longweekend.NewLongWeekendService(holidayRepo)
+	longWeekendTool := service.NewGetLongWeekendsTool(longWeekendSvc)
 
 	llmClient := clients.NewOpenAIClient(cfg)
-	agent := service.NewTripAgent(llmClient, []serviceinterfaces.ToolExecutor{recommendTool, itineraryTool, weatherTool}, cfg.GetModel())
+	agent := service.NewTripAgent(llmClient, []serviceinterfaces.ToolExecutor{recommendTool, itineraryTool, weatherTool, longWeekendTool}, cfg.GetModel())
 
 	handler := api.NewAPIHandler(agent, validator)
 
-	http.HandleFunc("/api/v1/trips/plan", handler.PlanTripHandler)
+	r := chi.NewRouter()
+	r.Use(middleware.Cors())
+
+	r.Post("/api/v1/trips/plan", handler.PlanTripHandler)
+	r.Get("/health", handler.HealthHandler)
 
 	port := cfg.GetPort()
 	log.Printf("[INFO] Starting trip planner server on port %s...", port)
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
+	if err := http.ListenAndServe(":"+port, r); err != nil {
 		log.Fatalf("[FATAL] Server failed to start: %v", err)
 	}
 }

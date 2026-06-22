@@ -74,3 +74,10 @@ func (h *APIHandler) PlanTripHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[%s] [INFO] POST /api/v1/trips/plan - Responded 200 OK - Duration: %v", reqID, time.Since(startTime))
 	utils.WriteJSON(w, http.StatusOK, models.PlanResponse{Response: res})
 }
+
+// HealthHandler responds with a simple health status code 200 OK.
+// This is used for backend status verification and frontend integration checks.
+func (h *APIHandler) HealthHandler(w http.ResponseWriter, r *http.Request) {
+	utils.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+

@@ -114,3 +114,21 @@ func (a *TripAgent) handleToolCalls(ctx context.Context, toolCalls []models.Tool
 	}
 	return messages, nil
 }
+
+// ResetSingletons resets all singletons in the service package for testing.
+func ResetSingletons() {
+	agentOnce = sync.Once{}
+	agentInstance = nil
+	plannerOnce = sync.Once{}
+	plannerInstance = nil
+	itineraryOnce = sync.Once{}
+	itineraryInstance = nil
+	recommendToolOnce = sync.Once{}
+	recommendToolInstance = nil
+	itineraryToolOnce = sync.Once{}
+	itineraryToolInstance = nil
+	weatherToolOnce = sync.Once{}
+	weatherToolInstance = nil
+	longWeekendToolOnce = sync.Once{}
+	longWeekendToolInstance = nil
+}
